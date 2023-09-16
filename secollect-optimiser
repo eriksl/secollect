@@ -1,0 +1,31 @@
+#!/bin/sh
+
+base="#/rrd/base/directory/#"
+name="#prefix#"
+
+#echo $0 "$@" >&2
+
+sequence="$1"
+id="$2"
+stamp="$3"
+date="$4"
+time="$5"
+uptime="$6"
+vpanel="$7"
+voptimiser="$8"
+current="$9"
+
+echo "sequence: ${sequence}"
+echo "id: ${id}"
+echo "stamp: ${stamp}"
+echo "date: ${date}"
+echo "time: ${time}"
+echo "uptime: ${uptime}"
+echo "vpanel: ${vpanel}"
+echo "voptimiser: ${voptimiser}"
+echo "current: ${current}"
+
+#rrdtool update "${base}/${name}_${id}_imod.rrd" "${stamp}:${current}"
+#rrdtool update "${base}/${name}_${id}_uptime.rrd" "${stamp}:${uptime}"
+#rrdtool update "${base}/${name}_${id}_vmod.rrd" "${stamp}:${vpanel}"
+#rrdtool update "${base}/${name}_${id}_vopt.rrd" "${stamp}:${voptimiser}"

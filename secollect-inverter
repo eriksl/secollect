@@ -1,0 +1,40 @@
+#!/bin/sh
+
+base="#/base/rrd/directory#"
+name="#prefix#"
+
+#echo $0 "$@" >&2
+
+sequence="$1"
+id="$2"
+stamp="$3"
+date="$4"
+time="$5"
+uptime="$6"
+temperature="$7"
+acv="$8"
+aci="$9"
+acf="${10}"
+dcv="${11}"
+acp="${12}"
+
+echo "sequence: ${sequence}"
+echo "id: ${id}"
+echo "stamp: ${stamp}"
+echo "date: ${date}"
+echo "time: ${time}"
+echo "uptime: ${uptime}"
+echo "temperature: ${temperature}"
+echo "acv: ${acv}"
+echo "aci: ${aci}"
+echo "acf: ${acf}"
+echo "dcv: ${dcv}"
+echo "acp: ${acp}"
+
+#rrdtool update "${base}/${name}_${id}_freq.rrd" "${stamp}:${acf}"
+#rrdtool update "${base}/${name}_${id}_iac.rrd" "${stamp}:${aci}"
+#rrdtool update "${base}/${name}_${id}_pac.rrd" "${stamp}:${acp}"
+#rrdtool update "${base}/${name}_${id}_temp.rrd" "${stamp}:${temperature}"
+#rrdtool update "${base}/${name}_${id}_uptime.rrd" "${stamp}:${uptime}"
+#rrdtool update "${base}/${name}_${id}_vac.rrd" "${stamp}:${acv}"
+#rrdtool update "${base}/${name}_${id}_vdc.rrd" "${stamp}:${dcv}"
