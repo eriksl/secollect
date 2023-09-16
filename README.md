@@ -35,3 +35,5 @@ secollect (secollect.o+crc16modbus.o), seanalyse (senanalyse.o+crc16modbus.o).
 I've learned that the timestamps of the optmisers may be a few minutes off. You can use the -t option to correct them.
 
 The seanalyse program is a simple data debugger, it takes a data stream on it's stdin. You can obtain it e.g. using wireshark. It should be data/payload only, no pcap file.
+
+CREDITS: this uses information obtained by reverse engineering the semonitor.py program by jbuel. There is no source of information about the proprietary protocol used by SolarEdge in the public domain, unfortunately.
