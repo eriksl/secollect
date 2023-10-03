@@ -21,7 +21,7 @@ CCWARNINGS		:=	-Wall -Wextra -Werror \
 						-Wpacked -Wfloat-equal -Winit-self -Wmissing-include-dirs \
 						-Wmissing-noreturn -Wbool-compare \
 						-Wsuggest-attribute=noreturn -Wsuggest-attribute=format -Wmissing-format-attribute \
-						-Wuninitialized -Wtrampolines -Wframe-larger-than=131072 \
+						-Wuninitialized -Wtrampolines -Wframe-larger-than=262144 \
 						-Wunsafe-loop-optimizations -Wshadow -Wpointer-arith -Wbad-function-cast \
 						-Wcast-qual -Wwrite-strings -Wsequence-point -Wlogical-op -Wlogical-not-parentheses \
 						-Wredundant-decls -Wvla -Wdisabled-optimization \
@@ -31,6 +31,7 @@ CCWARNINGS		:=	-Wall -Wextra -Werror \
 						\
 						-Wno-error=cast-qual \
 						-Wno-error=unsafe-loop-optimizations \
+						-Wno-format-zero-length \
 						\
 						-Wno-packed \
 						-Wno-unused-parameter \
