@@ -27,14 +27,14 @@ typedef enum
 	sc_datalen_inv_hi,
 	sc_sequence_lo,
 	sc_sequence_hi,
-	sc_address_slave_0,
-	sc_address_slave_1,
-	sc_address_slave_2,
-	sc_address_slave_3,
-	sc_address_master_0,
-	sc_address_master_1,
-	sc_address_master_2,
-	sc_address_master_3,
+	sc_address_from_0,
+	sc_address_from_1,
+	sc_address_from_2,
+	sc_address_from_3,
+	sc_address_to_0,
+	sc_address_to_1,
+	sc_address_to_2,
+	sc_address_to_3,
 	sc_function_lo,
 	sc_function_hi,
 	sc_data_no_tag,
@@ -54,8 +54,12 @@ typedef struct
 typedef struct
 {
 	unsigned int socket_fd;
-	unsigned int sequence;
-	unsigned int sequence_exception;
+	struct
+	{
+		unsigned int generic;
+		unsigned int function_500;
+		unsigned int function_4000;
+	} sequence;
 	unsigned int function;
 	struct
 	{
@@ -384,8 +388,8 @@ static void send_packet(const packet_t *packet_in)
 	*ptr++ = (message_length_inverted & 0xff00) >> 8;
 
 	ptr = header2;
-	*ptr++ = (packet_in->sequence & 0xff00) >> 8;
-	*ptr++ = (packet_in->sequence & 0x00ff) >> 0;
+	*ptr++ = (packet_in->sequence.generic & 0xff00) >> 8;
+	*ptr++ = (packet_in->sequence.generic & 0x00ff) >> 0;
 	*ptr++ = (packet_in->address.from & 0xff000000) >> 24;
 	*ptr++ = (packet_in->address.from & 0x00ff0000) >> 16;
 	*ptr++ = (packet_in->address.from & 0x0000ff00) >>  8;
@@ -401,8 +405,8 @@ static void send_packet(const packet_t *packet_in)
 	crc = crc16modbus_byte(crc, packet_in->payload.data, packet_in->payload.length);
 
 	ptr = header2;
-	*ptr++ = (packet_in->sequence & 0x00ff) >> 0;
-	*ptr++ = (packet_in->sequence & 0xff00) >> 8;
+	*ptr++ = (packet_in->sequence.generic & 0x00ff) >> 0;
+	*ptr++ = (packet_in->sequence.generic & 0xff00) >> 8;
 	*ptr++ = (packet_in->address.from & 0x000000ff) >>  0;
 	*ptr++ = (packet_in->address.from & 0x0000ff00) >>  8;
 	*ptr++ = (packet_in->address.from & 0x00ff0000) >> 16;
@@ -491,7 +495,7 @@ static bool enqueue_packet(const packet_t *packet)
 
 	printlog(log_debug, "enqueue packet [%u/%u/%u/%d] seq:%04x func:%04x from:%08x to:%08x payload:%u",
 		packet_queue_in, packet_queue_out, packet_queue_length, packet_queue_size,
-		packet->sequence, packet->function,
+		packet->sequence.generic, packet->function,
 		packet->address.from, packet->address.to,
 		packet->payload.length);
 
@@ -514,7 +518,7 @@ static bool dequeue_packet(void)
 
 	printlog(log_debug, "dequeue packet [%u/%u/%u/%d] seq:%04x func:%04x from:%08x to:%08x payload:%u", 
 			packet_queue_in, packet_queue_out, packet_queue_length, packet_queue_size,
-			packet_queue_entry->sequence,
+			packet_queue_entry->sequence.generic,
 			packet_queue_entry->function,
 			packet_queue_entry->address.from,
 			packet_queue_entry->address.to,
@@ -530,30 +534,14 @@ static bool dequeue_packet(void)
 	return(true);
 }
 
-__attribute__ ((used)) static void send_ack(int fd, unsigned int sequence, unsigned int address_from, unsigned int address_to)
-{
-	packet_t packet;
-
-	printlog(log_debug, "send ack seq:%04x from:%08x to:%08x", sequence, address_from, address_to);
-
-	packet.socket_fd = fd;
-	packet.sequence = sequence;
-	packet.function = 0x80;
-	packet.address.from = address_from;
-	packet.address.to = address_to;
-	packet.payload.length = 0;
-
-	send_packet(&packet);
-}
-
-static void send_busgrant(int fd, unsigned int address_from, unsigned int address_to)
+static void send_busgrant(int fd, unsigned int sequence, unsigned int address_from, unsigned int address_to)
 {
 	packet_t packet;
 
 	printlog(log_debug, "send busgrant from:%08x to:%08x", address_from, address_to);
 
 	packet.socket_fd = fd;
-	packet.sequence = 0xffff;
+	packet.sequence.generic = sequence;
 	packet.function = 0x302;
 	packet.address.from = address_from;
 	packet.address.to = address_to;
@@ -562,14 +550,30 @@ static void send_busgrant(int fd, unsigned int address_from, unsigned int addres
 	send_packet(&packet);
 }
 
-static bool enqueue_ack(int fd, unsigned int sequence, unsigned int address_from, unsigned int address_to)
+__attribute__ ((used)) static void send_ack(int fd, unsigned int sequence, unsigned int address_from, unsigned int address_to)
+{
+	packet_t packet;
+
+	printlog(log_debug, "send ack seq:%04x from:%08x to:%08x", sequence, address_from, address_to);
+
+	packet.socket_fd = fd;
+	packet.sequence.generic = sequence;
+	packet.function = 0x80;
+	packet.address.from = address_from;
+	packet.address.to = address_to;
+	packet.payload.length = 0;
+
+	send_packet(&packet);
+}
+
+__attribute__ ((used)) static bool enqueue_ack(int fd, unsigned int sequence, unsigned int address_from, unsigned int address_to)
 {
 	packet_t packet;
 
 	printlog(log_debug, "enqueue ack seq:%04x from:%08x to:%08x", sequence, address_from, address_to);
 
 	packet.socket_fd = fd;
-	packet.sequence = sequence;
+	packet.sequence.generic = sequence;
 	packet.function = 0x80;
 	packet.address.from = address_from;
 	packet.address.to = address_to;
@@ -605,7 +609,7 @@ static void process_function_500_type_10(function_500_subpacket_t *subpacket)
 	{
 		snprintf(command, sizeof(command) - 1, "%s %x %x %u %s %u %f %f %f %f %f %f\n",
 				subpacket->process_function_data->script.inverter,
-				subpacket->process_function_data->packet.sequence, subpacket->id,
+				subpacket->process_function_data->packet.sequence.function_500, subpacket->id,
 				stamp, datestring, uptime, temperature, acv, aci, acf, dcv, acp);
 
 		printlog(log_debug2, "inverter data: system(\"%s\")", command);
@@ -871,7 +875,7 @@ static void process_function_500_type_82(function_500_subpacket_t *subpacket) //
 	{
 		snprintf(command, sizeof(command) - 1, "%s %x %x %u %s %u %f %f %f",
 				subpacket->process_function_data->script.optimiser,
-				subpacket->process_function_data->packet.sequence, subpacket->id, stamp, datestring, uptime, vpanel, voptimiser, current);
+				subpacket->process_function_data->packet.sequence.function_500, subpacket->id, stamp, datestring, uptime, vpanel, voptimiser, current);
 
 		printlog(log_debug2, "optimiser data: system(\"%s\")", command);
 
@@ -896,7 +900,7 @@ static void send_datetime(int fd, unsigned int sequence, unsigned int address_fr
 	packet_t packet;
 
 	packet.socket_fd = fd;
-	packet.sequence = sequence;
+	packet.sequence.generic = sequence;
 	packet.function = 0x580;
 	packet.address.from = address_from;
 	packet.address.to = address_to;
@@ -934,12 +938,11 @@ static void process_function_36a(const process_function_data_t *process_function
 
 static void process_function_39a(const process_function_data_t *process_function_data)
 {
-	printlog(log_debug, "received master grant ack, sequence:%04x/%04x from:%08x to:%08x",
-		process_function_data->packet.sequence_exception, process_function_data->packet.sequence,
-				process_function_data->packet.address.from, process_function_data->packet.address.to);
+	printlog(log_debug, "received master grant ack, sequence:%04x from:%08x to:%08x",
+		process_function_data->packet.sequence.generic, process_function_data->packet.address.from, process_function_data->packet.address.to);
 
 	do
-		usleep(50000);
+		usleep(200000);
 	while(dequeue_packet());
 }
 
@@ -973,7 +976,7 @@ static void process_function_500(const process_function_data_t *process_function
 		id = uint4le_to_unsigned(&data[current + 2]) & 0xff7fffff;
 		sub_packet_length = uint2le_to_unsigned(&data[current + 6]);
 
-		printlog(log_info, "process_function_500 current:%u, payload_length: %u, sub_sequence:%u, sub_packet_type:%u sub_packet_length:%u id:%08x",
+		printlog(log_info, "process_function_500 current:%u, payload_length: %u, sub_sequence:%u, sub_packet_type:%03x sub_packet_length:%u id:%08x",
 				current, process_function_data->packet.payload.length, sub_sequence, sub_packet_type, sub_packet_length, id);
 
 		current += 8;
@@ -1014,26 +1017,26 @@ found:
 
 		jump->process_function(&subpacket);
 
-		printlog(log_info, "function %x/%x (%s) %s: sequence:%04x%s ",
-				process_function_data->packet.function, sub_packet_type, jump->name, datestring, process_function_data->packet.sequence, subpacket.output.data);
+		printlog(log_info, "function %x/%x (%s) %s: sequence:%04x%s ", process_function_data->packet.function,
+				sub_packet_type, jump->name, datestring, process_function_data->packet.sequence.function_500, subpacket.output.data);
 
 		current += sub_packet_length;
 	}
 
-	enqueue_ack(process_function_data->packet.socket_fd, process_function_data->packet.sequence, process_function_data->packet.address.to, process_function_data->packet.address.from);
+	enqueue_ack(process_function_data->packet.socket_fd, process_function_data->packet.sequence.function_500,
+				process_function_data->packet.address.to, process_function_data->packet.address.from);
 }
 
 static void process_function_501(const process_function_data_t *process_function_data)
 {
-	printlog(log_info, "received request for time, sequence:%04x", process_function_data->packet.sequence);
-	send_datetime(process_function_data->packet.socket_fd, process_function_data->packet.sequence,
+	printlog(log_info, "received request for time, sequence:%04x", process_function_data->packet.sequence.function_500);
+	send_datetime(process_function_data->packet.socket_fd, process_function_data->packet.sequence.function_500,
 				process_function_data->packet.address.to, process_function_data->packet.address.from);
 }
 
-
 static void process_function_4288(const process_function_data_t *process_function_data)
 {
-	enqueue_ack(process_function_data->packet.socket_fd, process_function_data->packet.sequence_exception,
+		enqueue_ack(process_function_data->packet.socket_fd, process_function_data->packet.sequence.function_4000,
 			process_function_data->packet.address.to, process_function_data->packet.address.from);
 }
 
@@ -1049,60 +1052,8 @@ static void process_function_428a(const process_function_data_t *process_functio
 		printlog(log_debug, "debug function 428a packet dump: %s\n", output);
 	}
 
-	enqueue_ack(process_function_data->packet.socket_fd, process_function_data->packet.sequence_exception,
+	enqueue_ack(process_function_data->packet.socket_fd, process_function_data->packet.sequence.function_4000,
 			process_function_data->packet.address.to, process_function_data->packet.address.from);
-}
-
-static void state_save(const char *filename, unsigned int sequence, unsigned int address_master, unsigned int address_slave)
-{
-	FILE *fp;
-
-	if(filename == (const char *)0)
-	{
-		printlog(log_notice, "no sequence save file");
-		return;
-	}
-
-	if((fp = fopen(filename, "w")) == (FILE *)0)
-	{
-		printlog(log_notice, "sequence save file cannot be opened");
-		return;
-	}
-
-	if(fprintf(fp, "0x%04x\n0x%08x\n0x%08x\n", sequence, address_master, address_slave) <= 0)
-	{
-		printlog(log_notice, "sequence save file cannot be written");
-		fclose(fp);
-		return;
-	}
-
-	fclose(fp);
-}
-
-static void state_load(const char *filename, unsigned int *sequence, unsigned int *address_master, unsigned int *address_slave)
-{
-	FILE *fp;
-
-	if(filename == (const char *)0)
-	{
-		printlog(log_notice, "no sequence save file");
-		return;
-	}
-
-	if((fp = fopen(filename, "r")) == (FILE *)0)
-	{
-		printlog(log_notice, "sequence save file cannot be opened");
-		return;
-	}
-
-	if(fscanf(fp, "%x\n%x\n%x\n", sequence, address_master, address_slave) != 3)
-	{
-		printlog(log_notice, "sequence save file cannot be read");
-		fclose(fp);
-		return;
-	}
-
-	fclose(fp);
 }
 
 int main(int argc, char *const *argv)
@@ -1112,8 +1063,9 @@ int main(int argc, char *const *argv)
 	unsigned int skipped;
 	unsigned int packet, short_packet, invalid_crc;
 	unsigned int datalen, datalen_inv;
-	unsigned int new_sequence, sequence;
+	unsigned int sequence, sequence_500, sequence_4000, sequence_other;
 	unsigned int address_master, address_slave;
+	unsigned int address_from, address_to;
 	unsigned int function;
 	unsigned int their_crc, our_crc;
 	uint8_t payload[65536];
@@ -1124,28 +1076,34 @@ int main(int argc, char *const *argv)
 	struct sockaddr_in saddr;
 	const char *inverter_update_script;
 	const char *optimiser_update_script;
-	const char *state_save_path_file;
 	const char *log_file;
 	const char *host;
 	unsigned int log_level_value;
 	int opt;
 
+	address_master = 0xfffffffe;
+	address_slave  = 0x00000000;
+	address_from = 0;
+	address_to = 0;
 	inverter_update_script = (const char *)0;
 	optimiser_update_script = (const char *)0;
-	state_save_path_file = "/var/lib/secollect/state";
 	log_file = (const char *)0;
 
-	address_master = 0xfffffffe;
-	address_slave =  0x00000001;
-	new_sequence = sequence = 0xffff;
+	sequence = sequence_500 = sequence_4000 = sequence_other = 0xffff;
 
 	packet_queue_in = packet_queue_out = packet_queue_length = 0;
 
-	while((opt = getopt(argc, argv, "d:i:l:o:s:v:h?")) != EOF)
+	while((opt = getopt(argc, argv, "m:s:o:i:v:l:h?")) != EOF)
 	{
 		switch(opt)
 		{
-			case('d'):
+			case('m'):
+			{
+				address_master = strtoul(optarg, (char **)0, 0);
+				break;
+			}
+
+			case('s'):
 			{
 				address_slave = strtoul(optarg, (char **)0, 0);
 				break;
@@ -1157,21 +1115,9 @@ int main(int argc, char *const *argv)
 				break;
 			}
 
-			case('l'):
-			{
-				log_file = optarg;
-				break;
-			}
-
 			case('o'):
 			{
 				optimiser_update_script = optarg;
-				break;
-			}
-
-			case('s'):
-			{
-				state_save_path_file = optarg;
 				break;
 			}
 
@@ -1189,6 +1135,12 @@ int main(int argc, char *const *argv)
 				break;
 			}
 
+			case('l'):
+			{
+				log_file = optarg;
+				break;
+			}
+
 			case(EOF):
 			{
 				break;
@@ -1197,11 +1149,19 @@ int main(int argc, char *const *argv)
 			default:
 			{
 				printlog(log_error,
-					"usage: secollect [-d default slave address ] [-i inverter-data-update-script] [-o optimiser-data-update-script] [-v loglevel] <host>\n"
+					"usage: secollect [-m master address (default = 0xfffffffe)] [-s slave address (required)]\n"
+					"[-i inverter-data-update-script] [-o optimiser-data-update-script]\n"
+					"[-v log level] [-l log file] <host>\n"
 					"    log levels: 0 = error, 1 = warning, 2 = notice, 3 = info, 4 = debug");
 				return(1);
 			}
 		}
+	}
+
+	if(address_slave == 0x00000000)
+	{
+		printlog(log_error, "slave address must be specified (%x)\n", address_slave);
+		return(1);
 	}
 
 	if((optind >= argc) || (!argv[optind]))
@@ -1214,7 +1174,6 @@ int main(int argc, char *const *argv)
 
 	log_file_fp = fopen(log_file, "a");
 
-	state_load(state_save_path_file, &sequence, &address_master, &address_slave);
 	payload_length = 0;
 
 	for(;;)
@@ -1262,8 +1221,6 @@ int main(int argc, char *const *argv)
 		short_packet = 0;
 		invalid_crc = 0;
 
-		send_busgrant(socket_fd, address_master, address_slave);
-
 		for(;;)
 		{
 			struct pollfd pfd[1];
@@ -1273,18 +1230,28 @@ int main(int argc, char *const *argv)
 			pfd->events = POLLIN | POLLRDHUP;
 			pfd->revents = 0;
 
-			switch((status = poll(pfd, 1, 5000)))
+			switch((status = poll(pfd, 1, 10000)))
 			{
 				case(0):
 				{
+					const struct tm *tm;
+					time_t now;
+
 					printlog(log_debug, "");
 					printlog(log_debug, "");
 					printlog(log_debug, "receive poll timeout");
 
-					if(!enqueue_ack(socket_fd, sequence, address_master, address_slave))
-						send_ack(socket_fd, sequence, address_master, address_slave);
+					if(state != sc_no_tag)
+					{
+						state = sc_no_tag;
+						short_packet++;
+					}
 
-					send_busgrant(socket_fd, address_master, address_slave);
+					time(&now);
+					tm = localtime(&now);
+
+					if((tm->tm_hour > 8) && (tm->tm_hour < 21))
+						send_busgrant(socket_fd, sequence_500, address_master, address_slave);
 
 					continue;
 				}
@@ -1426,7 +1393,7 @@ int main(int argc, char *const *argv)
 
 				case(sc_sequence_lo):
 				{
-					new_sequence = (unsigned int)current;
+					sequence = (unsigned int)current;
 
 					state = sc_sequence_hi;
 
@@ -1435,79 +1402,79 @@ int main(int argc, char *const *argv)
 
 				case(sc_sequence_hi):
 				{
-					new_sequence |= (unsigned int)current << 8;
+					sequence |= (unsigned int)current << 8;
 
-					state = sc_address_slave_0;
-
-					break;
-				}
-
-				case(sc_address_slave_0):
-				{
-					address_slave = (unsigned int)current << 0;
-
-					state = sc_address_slave_1;
+					state = sc_address_from_0;
 
 					break;
 				}
 
-				case(sc_address_slave_1):
+				case(sc_address_from_0):
 				{
-					address_slave |= (unsigned int)current << 8;
+					address_from = (unsigned int)current << 0;
 
-					state = sc_address_slave_2;
+					state = sc_address_from_1;
 
 					break;
 				}
 
-				case(sc_address_slave_2):
+				case(sc_address_from_1):
 				{
-					address_slave |= (unsigned int)current << 16;
+					address_from |= (unsigned int)current << 8;
 
-					state = sc_address_slave_3;
+					state = sc_address_from_2;
 
 					break;
 				}
 
-				case(sc_address_slave_3):
+				case(sc_address_from_2):
 				{
-					address_slave |= (unsigned int)current << 24;
+					address_from |= (unsigned int)current << 16;
 
-					state = sc_address_master_0;
+					state = sc_address_from_3;
 
 					break;
 				}
 
-				case(sc_address_master_0):
+				case(sc_address_from_3):
 				{
-					address_master = (unsigned int)current << 0;
+					address_from |= (unsigned int)current << 24;
 
-					state = sc_address_master_1;
+					state = sc_address_to_0;
 
 					break;
 				}
 
-				case(sc_address_master_1):
+				case(sc_address_to_0):
 				{
-					address_master |= (unsigned int)current << 8;
+					address_to = (unsigned int)current << 0;
 
-					state = sc_address_master_2;
+					state = sc_address_to_1;
 
 					break;
 				}
 
-				case(sc_address_master_2):
+				case(sc_address_to_1):
 				{
-					address_master |= (unsigned int)current << 16;
+					address_to |= (unsigned int)current << 8;
 
-					state = sc_address_master_3;
+					state = sc_address_to_2;
 
 					break;
 				}
 
-				case(sc_address_master_3):
+				case(sc_address_to_2):
 				{
-					address_master |= (unsigned int)current << 24;
+					address_to |= (unsigned int)current << 16;
+
+					state = sc_address_to_3;
+
+					break;
+				}
+
+				case(sc_address_to_3):
+				{
+					address_to |= (unsigned int)current << 24;
 
 					state = sc_function_lo;
 
@@ -1555,8 +1522,8 @@ int main(int argc, char *const *argv)
 
 					state = sc_data_no_tag;
 
-					if(current == 0x12)
-						state = sc_data_tag_0;
+					//if(current == 0x12)
+						//state = sc_data_tag_0;
 
 					break;
 				}
@@ -1645,30 +1612,33 @@ int main(int argc, char *const *argv)
 
 					their_crc |= current << 8;
 
-					*ptr++ = (new_sequence & 0xff00) >> 8;
-					*ptr++ = (new_sequence & 0x00ff) >> 0;
-					*ptr++ = (address_slave & 0xff000000) >> 24;
-					*ptr++ = (address_slave & 0x00ff0000) >> 16;
-					*ptr++ = (address_slave & 0x0000ff00) >>  8;
-					*ptr++ = (address_slave & 0x000000ff) >>  0;
-					*ptr++ = (address_master & 0xff000000) >> 24;
-					*ptr++ = (address_master & 0x00ff0000) >> 16;
-					*ptr++ = (address_master & 0x0000ff00) >>  8;
-					*ptr++ = (address_master & 0x000000ff) >>  0;
+					*ptr++ = (sequence & 0xff00) >> 8;
+					*ptr++ = (sequence & 0x00ff) >> 0;
+					*ptr++ = (address_from & 0xff000000) >> 24;
+					*ptr++ = (address_from & 0x00ff0000) >> 16;
+					*ptr++ = (address_from & 0x0000ff00) >>  8;
+					*ptr++ = (address_from & 0x000000ff) >>  0;
+					*ptr++ = (address_to & 0xff000000) >> 24;
+					*ptr++ = (address_to & 0x00ff0000) >> 16;
+					*ptr++ = (address_to & 0x0000ff00) >>  8;
+					*ptr++ = (address_to & 0x000000ff) >>  0;
 					*ptr++ = (function & 0xff00) >> 8;
 					*ptr++ = (function & 0x00ff) >> 0;
 					our_crc = crc16modbus_byte(0x5a5a, header, sizeof(header));
 					our_crc = crc16modbus_byte(our_crc, payload, payload_length);
 
-					printlog(log_debug, "packet:%u short:%u invalid crc:%u packet length:%u/%u sequence:%04x/%04x from/slave:%08x to/master:%08x "
-							"function:%04x, their_crc:%04x,our_crc:%04x skipped:%u",
-							packet++, short_packet, invalid_crc, payload_length, datalen_inv, new_sequence, sequence, address_slave, address_master, function,
-							their_crc, our_crc, skipped);
+					printlog(log_debug, "packet:%u invalid crc:%u packet length:%u/%u sequence:%04x/%04x/%04x/%04x from/slave:%08x to/master:%08x "
+							"function:%04x, their_crc:%04x,our_crc:%04x skipped:%u short:%u",
+							packet++, invalid_crc, payload_length, datalen_inv, sequence, sequence_500, sequence_4000, sequence_other,
+							address_from, address_to, function, their_crc, our_crc, skipped, short_packet);
 
 					if((function >= 0x500) && (function < 0x600))
-						sequence = new_sequence;
-
-					state_save(state_save_path_file, sequence, address_master, address_slave);
+						sequence_500 = sequence;
+					else
+						if((function >= 0x4000) && (function <= 0x5000))
+							sequence_4000 = sequence;
+						else
+							sequence_other = sequence;
 
 					if(our_crc != their_crc)
 					{
@@ -1690,8 +1660,9 @@ int main(int argc, char *const *argv)
 							process_function_data.ix = packet;
 							process_function_data.packet.function = function;
 							process_function_data.packet.socket_fd = socket_fd;
-							process_function_data.packet.sequence = sequence;
-							process_function_data.packet.sequence_exception = new_sequence;
+							process_function_data.packet.sequence.generic = sequence_other;
+							process_function_data.packet.sequence.function_500 = sequence_500;
+							process_function_data.packet.sequence.function_4000 = sequence_4000;
 							process_function_data.packet.address.from = address_slave;
 							process_function_data.packet.address.to = address_master;
 							process_function_data.script.inverter = inverter_update_script;
